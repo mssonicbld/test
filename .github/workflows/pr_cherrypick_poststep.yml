@@ -4,16 +4,17 @@ on:
     types:
     - closed
     branches:
-    - '202205'
-    - '202111'
-    - '202106'
-    - '202012'
-    - '201911'
-    - '201811'
+    - master
+    - 202205
+    - 202111
+    - 202106
+    - 202012
+    - 201911
+    - 201811
 
 jobs:
   post_cherry_pick:
-    if: github.event.pull_request.merged == true
+    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'automerge')
     runs-on: ubuntu-latest
     steps:
     - name: Debug
