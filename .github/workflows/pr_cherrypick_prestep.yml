@@ -82,7 +82,7 @@ jobs:
         git config user.email sonicbuildadmin@microsoft.com
 
         git config credential.https://github.com.username mssonicbld
-        git remote add mssonicbld https://mssonicbld:${TOKEN}@github.com/mssonicbld/sonic-buildimage
+        git remote add mssonicbld https://mssonicbld:${TOKEN}@github.com/mssonicbld/test
         git fetch mssonicbld
         git remote -vv
 
