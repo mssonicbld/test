@@ -1,0 +1,58 @@
+name: PostCherryPick
+on:
+  pull_request_target:
+    types:
+    - closed
+    branches:
+    - '202205'
+    - '202111'
+    - '202106'
+    - '202012'
+    - '201911'
+    - '201811'
+
+jobs:
+  post_cherry_pick:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+    - name: Debug
+      env:
+        GITHUB_CONTEXT: ${{ toJson(github) }}
+      run: echo $GITHUB_CONTEXT | jq
+    - name: Checkout
+      uses: actions/checkout@v3
+      with:
+        persist-credentials: false
+    - name: Main
+      env:
+        GITHUB_CONTEXT: ${{ toJson(github) }}
+        TOKEN: ${{ secrets.TOKEN }}
+      run: |
+        set -e
+        pr_url=$(echo $GITHUB_CONTEXT | jq ".event.pull_request._links.html.href" | sed 's/"//g')
+        base_ref=$(echo $GITHUB_CONTEXT | jq ".base_ref" | sed 's/"//g')
+        echo =============================
+        echo pr_url:        $pr_url
+        echo base_ref:      $base_ref
+        echo ${TOKEN} | gh auth login --with-token
+        echo =============================
+        comments=$(gh pr view $pr_url --json comments | jq '.comments')
+
+        count=$(echo $comments | jq 'length')
+        echo comment count: $count
+        for (( i=0; i<$count; i++ ))
+        do
+          if [[ $(echo $comments | jq ".[$i].author.login" | sed 's/"//g') == "mssonicbld" ]];then
+            origin_pr_url=$(echo $comments | jq ".[$i].body" | sed 's/"//g' | sed 's/Original PR: //')
+            break
+          fi
+        done
+        echo origin_pr_url:     $origin_pr_url
+        # Add label
+        if [[ "$origin_pr_url" == "" ]];then
+          echo No comment from mssonicbld
+          exit 0
+        fi
+        gh pr edit $origin_pr_url --add-label "Included in ${base_ref} Branch"
+        gh pr edit $origin_pr_url --remove-label "Created PR to ${base_ref} Branch"

@@ -1,0 +1,119 @@
+name: PreCherryPick
+on:
+  pull_request_target:
+    types:
+    - labeled
+    - closed
+    branches:
+    - master
+
+jobs:
+  pre_cherry_pick:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        branch: [202205,202111,202106,202012,201911,201811]
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Debug
+      env:
+        GITHUB_CONTEXT: ${{ toJson(github) }}
+      run: echo $GITHUB_CONTEXT | jq
+    - name: Main
+      env:
+        GITHUB_CONTEXT: ${{ toJson(github) }}
+        TOKEN: ${{ secrets.TOKEN }}
+      run: |
+        set -e
+
+        sha=$(echo $GITHUB_CONTEXT | jq ".event.pull_request.merge_commit_sha" | sed 's/"//g')
+        pr_id=$(echo $GITHUB_CONTEXT | jq ".event.number" | sed 's/"//g')
+        pr_url=$(echo $GITHUB_CONTEXT | jq ".event.pull_request._links.html.href" | sed 's/"//g')
+        repository=$(echo $GITHUB_CONTEXT | jq ".repository" | sed 's/"//g')
+        labels_count=$(echo $GITHUB_CONTEXT | jq ".event.pull_request.labels | length")
+        labels_json=$(echo $GITHUB_CONTEXT | jq ".event.pull_request.labels")
+        echo =============================
+        echo SHA:           $sha
+        echo PRID:          $pr_id
+        echo pr_url:        $pr_url
+        echo repository:    $repository
+        echo labels_count:  $labels_count
+        echo labels_json：   $labels_json
+        echo ${TOKEN} | gh auth login --with-token
+        echo =============================
+        if [[ $(echo $GITHUB_CONTEXT | jq ".event.action" | sed 's/"//g') == "labeled" ]] && \
+           [[ $(echo $GITHUB_CONTEXT | jq ".event.label.name" | sed 's/"//g') != "Approved for ${{ matrix.branch }} Branch" ]];then
+          echo "Newly added label didn't match."
+          exit 0
+        fi
+        create_pr=''
+        for (( i=0; i<$labels_count; i++ ))
+        do
+          label=$(echo $labels_json | jq ".[$i].name" | sed 's/"//g')
+          echo label ${i}: $label
+          if echo $label | grep -oE "Approved for ${{ matrix.branch }} Branch";then
+            create_pr=1
+          fi
+          if echo $label | grep -oE "Created PR to ${{ matrix.branch }} Branch";then
+            echo "already has tag: Created PR to ${{ matrix.branch }} Branch, exit"
+            exit 0
+          fi
+          if echo $label | grep -oE "Included in ${{ matrix.branch }} Branch";then
+            echo "already has tag: Included in ${{ matrix.branch }} Branch, exit"
+            exit 0
+          fi
+        done
+        if [[ "$create_pr" != "1" ]];then
+          echo "Didn't find 'Approved for ${{ matrix.branch }} Branch' tag."
+          exit 0
+        fi
+
+        # Begin to cherry-pick PR
+        git checkout -b ${{ matrix.branch }} --track origin/${{ matrix.branch }}
+        git checkout .
+        git clean -xdff
+
+        git config user.name mssonicbld
+        git config user.email sonicbuildadmin@microsoft.com
+
+        git config credential.https://github.com.username mssonicbld
+        git remote add mssonicbld https://mssonicbld:${TOKEN}@github.com/mssonicbld/sonic-buildimage
+        git fetch mssonicbld
+        git remote -vv
+
+        if ! git cherry-pick $sha;then
+          echo 'cherry-pick failed.'
+          # Add label
+          gh pr edit $pr_url --add-label "Cherry Pick Conflict_${{ matrix.branch }}"
+          echo 'Add label "Cherry Pick Conflict_${{ matrix.branch }}" success'
+          author=$(gh pr view $pr_url --json author | jq '.author.login' | sed 's/"//g')
+          gh pr comment $pr_url --body "@${author} PR conflicts with ${{ matrix.branch }} branch"
+          echo 'Add commnet "@${author} PR conflicts with ${{ matrix.branch }} branch"'
+        else
+          # Create PR to release branch
+          git push mssonicbld HEAD:${{ matrix.branch }}-${pr_id} -f
+          result=$(gh pr create -R ${repository} -H mssonicbld:${{ matrix.branch }}-${pr_id} -B ${{ matrix.branch }} -t "[action] Auto cherry-pick PR:#${pr_id} into ${{ matrix.branch }} branch" -b '')
+          if [[ "$(echo $result | grep github.com)" == "" ]];then echo $result; exit 1;fi
+
+          new_pr_rul=$(echo $result | grep github.com)
+          echo new_pr_rul:    $new_pr_rul
+
+          # Add label to old PR
+          gh pr edit $pr_url --add-label "Created PR to ${{ matrix.branch }} Branch"
+          echo Add label Created PR to ${{ matrix.branch }} Branch
+          # Add comment to old PR
+          gh pr comment $pr_url --body "Cherry-pick PR to ${{ matrix.branch }}: ${new_pr_rul}"
+          echo Add comment to old PR
+
+          # Add label to new PR
+          gh pr edit $new_pr_rul --add-label "automerge"
+          echo Add label Created PR to ${{ matrix.branch }} Branch
+          # Add comment to new PR
+          gh pr comment $new_pr_rul --body "Original PR: ${pr_url}"
+          echo Add comment to new PR
+        fi

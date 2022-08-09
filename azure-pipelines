@@ -1,0 +1,3 @@
+trigger: none
+steps:
+- script: echo hellow
