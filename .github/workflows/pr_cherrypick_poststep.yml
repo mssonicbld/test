@@ -4,8 +4,8 @@ on:
     types:
     - closed
     branches:
-    - '202205'
     - '202111'
+    - 'liushilongbuaa:202111'
     - '202106'
     - '202012'
     - '201911'
