@@ -116,4 +116,8 @@ jobs:
           # Add comment to new PR
           gh pr comment $new_pr_rul --body "Original PR: ${pr_url}"
           echo Add comment to new PR
+
+          # approve new PR
+          echo ${{ secrets.GITHUB_TOKEN }} | gh auth login --with-token
+          gh pr review $new_pr_rul --approve
         fi
