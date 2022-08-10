@@ -9,7 +9,7 @@ on:
 
 jobs:
   pre_cherry_pick:
-    if: github.event.pull_request.merged == true
+    if: github.event.pull_request.merged == true && (github.event.action == "closed" || contains(github.event.label.name, "Approved for ${{ matrix.branch }} Branch") )
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -31,10 +31,10 @@ jobs:
       run: |
         set -e
 
-        sha=$(echo $GITHUB_CONTEXT | jq ".event.pull_request.merge_commit_sha" | sed 's/"//g')
-        pr_id=$(echo $GITHUB_CONTEXT | jq ".event.number" | sed 's/"//g')
-        pr_url=$(echo $GITHUB_CONTEXT | jq ".event.pull_request._links.html.href" | sed 's/"//g')
-        repository=$(echo $GITHUB_CONTEXT | jq ".repository" | sed 's/"//g')
+        sha=$(echo $GITHUB_CONTEXT | jq -r ".event.pull_request.merge_commit_sha")
+        pr_id=$(echo $GITHUB_CONTEXT | jq -r ".event.number")
+        pr_url=$(echo $GITHUB_CONTEXT | jq -r ".event.pull_request._links.html.href")
+        repository=$(echo $GITHUB_CONTEXT | jq -r ".repository")
         labels_count=$(echo $GITHUB_CONTEXT | jq ".event.pull_request.labels | length")
         labels_json=$(echo $GITHUB_CONTEXT | jq ".event.pull_request.labels")
         echo =============================
@@ -46,24 +46,24 @@ jobs:
         echo labels_json：   $labels_json
         echo ${TOKEN} | gh auth login --with-token
         echo =============================
-        if [[ $(echo $GITHUB_CONTEXT | jq ".event.action" | sed 's/"//g') == "labeled" ]] && \
-           [[ $(echo $GITHUB_CONTEXT | jq ".event.label.name" | sed 's/"//g') != "Approved for ${{ matrix.branch }} Branch" ]];then
+        if [[ "$(echo $GITHUB_CONTEXT | jq -r '.event.action')" == "labeled" ]] && \
+           [[ "$(echo $GITHUB_CONTEXT | jq -r '.event.label.name')" != "Approved for ${{ matrix.branch }} Branch" ]];then
           echo "Newly added label didn't match."
           exit 0
         fi
         create_pr=''
         for (( i=0; i<$labels_count; i++ ))
         do
-          label=$(echo $labels_json | jq ".[$i].name" | sed 's/"//g')
+          label=$(echo $labels_json | jq -r ".[$i].name")
           echo label ${i}: $label
-          if echo $label | grep -oE "Approved for ${{ matrix.branch }} Branch";then
+          if [[ "$label" == "Approved for ${{ matrix.branch }} Branch" ]];then
             create_pr=1
           fi
-          if echo $label | grep -oE "Created PR to ${{ matrix.branch }} Branch";then
+          if [[ "$label" == "Created PR to ${{ matrix.branch }} Branch" ]];then
             echo "already has tag: Created PR to ${{ matrix.branch }} Branch, exit"
             exit 0
           fi
-          if echo $label | grep -oE "Included in ${{ matrix.branch }} Branch";then
+          if [[ "$label" == "Included in ${{ matrix.branch }} Branch" ]];then
             echo "already has tag: Included in ${{ matrix.branch }} Branch, exit"
             exit 0
           fi
@@ -82,7 +82,7 @@ jobs:
         git config user.email sonicbuildadmin@microsoft.com
 
         git config credential.https://github.com.username mssonicbld
-        git remote add mssonicbld https://mssonicbld:${TOKEN}@github.com/mssonicbld/test
+        git remote add mssonicbld https://mssonicbld:${TOKEN}@github.com/mssonicbld/sonic-buildimage
         git fetch mssonicbld
         git remote -vv
 
@@ -116,8 +116,4 @@ jobs:
           # Add comment to new PR
           gh pr comment $new_pr_rul --body "Original PR: ${pr_url}"
           echo Add comment to new PR
-
-          # approve new PR
-          echo ${{ secrets.GITHUB_TOKEN }} | gh auth login --with-token
-          gh pr review $new_pr_rul --approve
         fi

@@ -4,7 +4,6 @@ on:
     types:
     - closed
     branches:
-    - master
     - 202205
     - 202111
     - 202106
@@ -33,23 +32,15 @@ jobs:
         set -e
         pr_url=$(echo $GITHUB_CONTEXT | jq ".event.pull_request._links.html.href" | sed 's/"//g')
         base_ref=$(echo $GITHUB_CONTEXT | jq ".base_ref" | sed 's/"//g')
+        echo ${TOKEN} | gh auth login --with-token
+        comment=$(gh pr view $pr_url --json comments | jq -r '.comments | [.[] | select(.author.login=="mssonicbld")] | first | .body')
+        origin_pr_url=$(echo $comment | sed 's/Original PR: //')
         echo =============================
         echo pr_url:        $pr_url
         echo base_ref:      $base_ref
-        echo ${TOKEN} | gh auth login --with-token
+        echo comment:       $comment
+        echo origin_pr_url: $origin_pr_url
         echo =============================
-        comments=$(gh pr view $pr_url --json comments | jq '.comments')
-
-        count=$(echo $comments | jq 'length')
-        echo comment count: $count
-        for (( i=0; i<$count; i++ ))
-        do
-          if [[ $(echo $comments | jq ".[$i].author.login" | sed 's/"//g') == "mssonicbld" ]];then
-            origin_pr_url=$(echo $comments | jq ".[$i].body" | sed 's/"//g' | sed 's/Original PR: //')
-            break
-          fi
-        done
-        echo origin_pr_url:     $origin_pr_url
         # Add label
         if [[ "$origin_pr_url" == "" ]];then
           echo No comment from mssonicbld
